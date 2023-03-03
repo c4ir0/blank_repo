@@ -1,0 +1,351 @@
+1 - JWTs are most commonly used in authentication, session management, and access control mechanisms
+
+
+2 - JSON web tokens (JWTs) are a standardized format for sending cryptographically signed JSON data between systems. They can theoretically contain any kind of data, but are most commonly used to send information ("claims") about users as part of authentication, session handling, and access control mechanisms.
+
+Unlike with classic session tokens, all of the data that a server needs is stored client-side within the JWT itself. This makes JWTs a popular choice for highly distributed websites where users need to interact seamlessly with multiple back-end servers.
+
+
+3 - JWT format
+A JWT consists of 3 parts: a header, a payload, and a signature. These are each separated by a dot, as shown in the following example:
+
+(( eyJraWQiOiI5MTM2ZGRiMy1jYjBhLTRhMTktYTA3ZS1lYWRmNWE0NGM4YjUiLCJhbGciOiJSUzI1NiJ9 )).(( eyJpc3MiOiJwb3J0c3dpZ2dlciIsImV4cCI6MTY0ODAzNzE2NCwibmFtZSI6IkNhcmxvcyBNb250b3lhIiwic3ViIjoiY2FybG9zIiwicm9sZSI6ImJsb2dfYXV0aG9yIiwiZW1haWwiOiJjYXJsb3NAY2FybG9zLW1vbnRveWEubmV0IiwiaWF0IjoxNTE2MjM5MDIyfQ)).((SYZBPIBg2CRjXAJ8vCER0LA_ENjII1JakvNQoP-Hw6GG1zfl4JyngsZReIfqRvIAEi5L4HV0q7_9qGhQZvy9ZdxEJbwTxRs_6Lb-fZTDpW6lKYNdMyjw45_alSCZ1fypsMWz_2mTpQzil0lOtps5Ei_z7mM7M8gCwe_AGpI53JxduQOaB5HkT5gVrv9cKu9CsW5MS6ZbqYXpGyOG5ehoxqm8DL5tFYaW3lB50ELxi0KsuTKEbD0t5BCl0aCR2MBJWAbN-xeLwEenaqBiwPVvKixYleeDQiBEIylFdNNIMviKRgXiYuAvMziVPbwSgkZVHeEdF5MQP1Oe2Spac-6IfA ))
+
+
+4 - << header >> and << payload >> parts of a JWT are just base64url-encoded JSON objects. << The header >> contains metadata about the token itself, while << the payload >> contains the actual "claims" about the user. For example, you can decode the payload from the token above to reveal the following claims:
+
+{
+    "iss": "portswigger",
+    "exp": 1648037164,
+    "name": "Carlos Montoya",
+    "sub": "carlos",
+    "role": "blog_author",
+    "email": "carlos@carlos-montoya.net",
+    "iat": 1516239022
+}
+In most cases, this data can be easily read or modified by anyone with access to the token. Therefore, the security of any JWT-based mechanism is heavily reliant on the cryptographic signature.
+
+
+5 - JWT signature : 
+
+The server that issues the token typically generates the signature by hashing the header and payload. In some cases, they also encrypt the resulting hash. Either way, this process involves a secret signing key. This mechanism provides a way for servers to verify that none of the data within the token has been tampered with since it was issued:
+
+As the signature is directly derived from the rest of the token, changing a single byte of the header or payload results in a mismatched signature.
+
+Without knowing the server's secret signing key, it shouldn't be possible to generate the correct signature for a given header or payload.
+
+
+6 - JWT is usually either a (JWS SON Web Signature) or JWE and (JSON Web Encryption token ). When people use the term "JWT", they almost always mean a JWS token. JWEs are very similar, except that the actual contents of the token are encrypted rather than just encoded.
+
+
+7 - What is the impact of JWT attacks?
+
+The impact of JWT attacks is usually severe. If an attacker is able to create their own valid tokens with arbitrary values, they may be able to escalate their own privileges or impersonate other users, taking full control of their accounts.
+
+
+8 - How do vulnerabilities to JWT attacks arise?
+
+JWT vulnerabilities typically arise due to flawed JWT handling within the application itself. The various specifications related to JWTs are relatively flexible by design, allowing website developers to decide many implementation details for themselves. This can result in them accidentally introducing vulnerabilities even when using battle-hardened libraries.
+
+These implementation flaws usually mean that the signature of the JWT is not verified properly. This enables an attacker to tamper with the values passed to the application via the token's payload. Even if the signature is robustly verified, whether it can truly be trusted relies heavily on the server's secret key remaining a secret. If this key is leaked in some way, or can be guessed or brute-forced, an attacker can generate a valid signature for any arbitrary token, compromising the entire mechanism.
+
+
+9 -  the JWT Editor extension : 
+
+I - Automatic highlighting of any requests in the proxy history that contain JWTs.
+
+II -An additional tab that lets you generate or upload cryptographic keys in a variety of formats.
+
+III -An additional message editor tab that lets you view and edit the JWT header and payload in raw, unencoded JSON.
+
+IV -A feature for signing modified JWTs directly within Burp Repeater.
+
+====================================================================
+
+1 - Exploiting flawed JWT signature verification :
+
+* servers don't usually store any information about the JWTs that they issue. Instead, each token is an entirely self-contained entity
+
+* This has several advantages, but also introduces a fundamental problem - the server doesn't actually know anything about the original contents of the token, or even what the original signature was.
+
+* Therefore, if the server doesn't verify the signature properly, there's nothing to stop an attacker from making arbitrary changes to the rest of the token.
+
+1.1 - Accepting arbitrary signatures : 
+
+🚩🚩 lAB : JWT authentication bypass via unverified signature 🚩🚩
+
+U can change the user of the jwt simply with no need to change the signature and the server is gonna accept it and that leads to authentication bypass to restricted endpoint "/admin"
+
+1.2 - Accepting tokens with no signature : 
+
+Among other things, the JWT header contains an alg parameter. This tells the server which algorithm was used to sign the token and, therefore, which algorithm it needs to use when verifying the signature.
+
+{
+    "alg": "HS256",
+    "typ": "JWT"
+}
+
+This is inherently flawed because the server has no option but to implicitly trust user-controllable input from the token which, at this point, hasn't been verified at all. In other words, an attacker can directly influence how the server checks whether the token is trustworthy.
+
+JWTs can be signed using a range of different algorithms, but can also be left unsigned. In this case, the alg parameter is set to none, which indicates a so-called "unsecured JWT". Due to the obvious dangers of this, servers usually reject tokens with no signature. However, as this kind of filtering relies on string parsing, you can sometimes bypass these filters using classic obfuscation techniques, such as mixed capitalization and unexpected encodings.
+
+Note
+Even if the token is unsigned, the payload part must still be terminated with a trailing dot.
+
+🚩🚩 LAB : JWT authentication bypass via flawed signature verification 🚩🚩
+
+do two steps :
+
+a. change values in the payload part of the JWT then remove the signature part BUT, leave the trailing dot before it
+
+b. set the alg part in the header part to none or NonE, ...
+
+
+
+3 - Brute-forcing secret keys using hashcat  :
+
+You just need a valid, signed JWT from the target server and a wordlist of well-known secrets( https://raw.githubusercontent.com/wallarm/jwt-secrets/master/jwt.secrets.list ). You can then run the following command, passing in the JWT and wordlist as arguments:
+
+$ hashcat -a 0 -m 16500 <jwt_cookie> <wordlist>
+
+Hashcat signs the header and payload from the JWT using each secret in the wordlist, then compares the resulting signature with the original one from the server. If any of the signatures match, hashcat outputs the identified secret in the following format, along with various other details:
+
+<jwt>:<identified-secret>
+
+Once you have identified the secret key, you can use it to generate a valid signature for any JWT header and payload that you like.If the server uses an extremely weak secret, it may even be possible to brute-force this character-by-character rather than using a wordlist.
+
+🚩🚩 LAB : JWT authentication bypass via weak signing key 🚩🚩 
+
+a. have the JWT cookie and input it in the following hashcat command .. why ? to get the the sign key of the cookie once U have it U can modify the jwt cookie as U want then re-sign the whole of it and it becomes valid :
+
+$ hashcat -a 0 -m 16500 <YOUR-JWT-cookie-value> jwt.secrets.list
+
+b. get the right secret and encode it as base64 then do the steps to generate new key 
+
+c . modify the user sub claim to administrator then re-sign the token with the valid signature 
+
+d. change the path to /admin then hit send and delete carlos .
+
+
+4 - JWT header parameter injections : 
+
+According to the JWS specification, only the alg header parameter is mandatory. In practice, however, JWT headers (also known as JOSE headers) often contain several other parameters. The following ones are of particular interest to attackers.
+
+jwk (JSON Web Key) - Provides an embedded JSON object representing the key.
+
+jku (JSON Web Key Set URL) - Provides a URL from which servers can fetch a set of keys containing the correct key.
+
+kid (Key ID) - Provides an ID that servers can use to identify the correct key in cases where there are multiple keys to choose from. Depending on the format of the key, this may have a matching kid parameter.
+
+these user-controllable parameters each tell the recipient server which key to use when verifying the signature. In this section, you'll learn how to exploit these to inject modified JWTs signed using your own arbitrary key rather than the server's secret.
+
+
+I -   Injecting self-signed JWTs via the jwk parameter :
+
+The JSON Web Signature (JWS) specification describes an optional jwk header parameter, which servers can use to embed their public key directly within the token itself in JWK format.
+
+-- ?> (( JWK )) <? --
+
+A JWK (JSON Web Key) is a standardized format for representing keys as a JSON object.
+Ideally, servers should only use a limited whitelist of public keys to verify JWT signatures. However, misconfigured servers sometimes use any key that's embedded in the jwk parameter.
+
+You can exploit this behavior by signing a modified JWT using your own RSA private key, then embedding the matching public key in the jwk header.
+
+Although you can manually add or modify the jwk parameter in Burp, the JWT Editor extension provides a useful feature to help you test for this vulnerability:
+
+1 - With the extension loaded, in Burp's main tab bar, go to the JWT Editor Keys tab.
+
+2 - Generate a new RSA key.
+
+3 - Send a request containing a JWT to Burp Repeater.
+
+4 - In the message editor, switch to the extension-generated JSON Web Token tab and modify the token's payload however you like.
+
+5 - Click Attack, then select Embedded JWK. When prompted, select your newly generated RSA key.
+
+6 - Send the request to test how the server responds.
+
+You can also perform this attack manually by adding the jwk header yourself. However, you may also need to update the JWT's kid header parameter to match the kid of the embedded key. The extension's built-in attack takes care of this step for you.
+
+🚩🚩 LAB JWT authentication bypass via jwk header injection 🚩🚩 
+
+* U need a request that has jwt in cookies and send that to repeater 
+
+* generate a new rsa key from JWT Editor Key --> New RSA Key --> change nothing 
+
+* in the repeater were the request were located change 2 things :
+
+sub --> administartor
+path --> /admin
+
+* from the attack tab choose --> embed JWK --> choose the signing key U have just generated and press ok 
+
+* the token will be edited automatically change nothing more then hit send
+
+* now, you are authorized to enter the admin panel, do whatever and solve the lab
+
+II) - Injecting self-signed JWTs via the jku parameter
+
+{"kid":"61f65cff-2a25-4eb7-8bd6-0549d2c8be2b","typ":"JWT","alg":"HS256","jwk":{"kty":"oct","kid":"61f65cff-2a25-4eb7-8bd6-0549d2c8be2b","k":"aGVsbG8sd29ybGQ="}}
+
+{
+    "keys": [
+        {
+            "kty": "RSA",
+            "e": "AQAB",
+            "kid": "75d0ef47-af89-47a9-9061-7c02a610d5ab",
+            "n": "o-yy1wpYmffgXBxhAUJzHHocCuJolwDqql75ZWuCQ_cb33K2vh9mk6GPM9gNN4Y_qTVX67WhsN3JvaFYw-fhvsWQ"
+        },
+        {
+            "kty": "RSA",
+            "e": "AQAB",
+            "kid": "d8fDFo-fS9-faS14a9-ASf99sa-7c1Ad5abA",
+            "n": "fc3f-yy1wpYmffgXBxhAUJzHql79gNNQ_cb33HocCuJolwDqmk6GPM4Y_qTVX67WhsN3JvaFYw-dfg6DH-asAScw"
+        }
+    ]
+}
+
+🚩🚩 Lab: JWT authentication bypass via jku header injection 🚩🚩 
+
+Part 1 - Upload a malicious JWK Set
+
+* In Burp Repeater, change the path to /admin and send the request. Observe that the admin panel is only accessible when logged in as the administrator user.
+
+* Go to the JWT Editor Keys tab in Burp's main tab bar --> Click New RSA Key -->  Note that you don't need to select a key size as this will automatically be updated later.
+
+* In the browser, go to the exploit server --> Replace the contents of the Body section with an empty JWK Set as follows:
+
+{
+    "keys": [
+
+    ]
+}
+
+* Back on the JWT Editor Keys tab, right-click on the entry for the key that you just generated, then select Copy Public Key as JWK --> Paste the JWK into the keys array on the exploit server, then store the exploit. The result should look something like this:
+
+{
+    "keys": [
+        {
+            "kty": "RSA",
+            "e": "AQAB",
+            "kid": "893d8f0b-061f-42c2-a4aa-5056e12b8ae7",
+            "n": "yy1wpYmffgXBxhAUJzHHocCuJolwDqql75ZWuCQ_cb33K2vh9mk6GPM9gNN4Y_qTVX67WhsN3JvaFYw"
+        }
+    ]
+}
+
+* Go back to the GET /admin request in Burp Repeater and switch to the extension-generated JSON Web Token message editor tab --> In the header of the JWT, replace the current value of the kid parameter with the kid of the JWK that you uploaded to the exploit server.
+
+Add a new jku parameter to the header of the JWT. Set its value to the URL of your JWK Set on the exploit server to be [the final form] : 
+
+{
+    "kid": "893d8f0b-061f-42c2-a4aa-5056e12b8ae7",
+    "alg": "RS256",
+👉👉"jku": "https://exploit-0adf00c90396ba59c0573d8a010a00da.exploit-server.net/exploit" 👈👈
+}
+
+
+
+* In the payload, change the value of the sub claim to administrator, At the bottom of the tab, click Sign, then select the RSA key that you generated in the previous section --> Make sure that the Don't modify header option is selected, then click OK. The modified token is now signed with the correct signature.
+
+* Send the request. Observe that you have successfully accessed the admin panel --> In the response, find the URL for deleting Carlos (/admin/delete?username=carlos). Send the request to this endpoint to solve the lab.
+
+III) - Injecting self-signed JWTs via the kid parameter
+
+* Servers may use several cryptographic keys for signing different kinds of data, not just JWTs. For this reason, the header of a JWT may contain a kid (Key ID) parameter, which helps the server identify which key to use when verifying the signature.
+
+* Verification keys are often stored as a JWK Set. In this case, the server may simply look for the JWK with the same kid as the token. However, the JWS specification doesn't define a concrete structure for this ID - it's just an arbitrary string of the developer's choosing. For example, they might use the kid parameter to point to a particular entry in a database, or even the name of a file.
+
+If this parameter is also vulnerable to directory traversal, an attacker could potentially force the server to use an arbitrary file from its filesystem as the verification key.
+
+{
+    "kid": "../../path/to/file",
+    "typ": "JWT",
+    "alg": "HS256",
+    "k": "asGsADas3421-dfh9DGN-AFDFDbasfd8-anfjkvc"
+}
+
+* This is especially dangerous if the server also supports JWTs signed using a symmetric algorithm. In this case, an attacker could potentially point the kid parameter to a predictable, static file, then sign the JWT using a secret that matches the contents of this file.
+
+* You could theoretically do this with any file, but one of the simplest methods is to use /dev/null, which is present on most Linux systems. As this is an empty file, fetching it returns null. Therefore, signing the token with a Base64-encoded null byte will result in a valid signature.If the server stores its verification keys in a database, the kid header parameter is also a potential vector for SQL injection attacks.
+
+
+
+🚩🚩 JWT authentication bypass via kid header path traversal 🚩🚩 
+
+Part 1 - Generate a suitable signing key : 
+
+* In the lab, log in to your own account and send the post-login GET /my-account request to Burp Repeater.
+
+* In Burp Repeater, change the path to /admin and send the request. Observe that the admin panel is only accessible when logged in as the administrator user.
+
+* Go to the JWT Editor Keys tab in Burp's main tab bar --> Click New Symmetric Key --> In the dialog, click Generate to generate a new key in JWK format. Note that you don't need to select a key size as this will automatically be updated later.
+
+* Replace the generated value for the k property with a Base64-encoded null byte (AA==) --> click OK to save the key.
+
+Part 2 - Modify and sign the JWT :
+
+* Go back to the GET /admin request in Burp Repeater and switch to the extension-generated JSON Web Token message editor tab.
+
+* In the header of the JWT, change the value of the kid parameter to a path traversal sequence pointing to the /dev/null file:
+
+../../../../../../../dev/null
+
+* In the JWT payload, change the value of the sub claim to administrator.
+
+* At the bottom of the tab, click Sign, then select the symmetric key that you generated in the previous section --> make sure that the Don't modify header option is selected, then --> click OK --> The modified token is now signed using a null byte as the secret key.
+
+* Send the request and observe that you have successfully accessed the admin panel.
+ 
+
+
+
+
+5 - 
+
+
+6 - 
+
+
+7 - 
+
+
+8 - 
+
+
+9 - 
+
+
+10 - 
+
+
+21 - 
+
+
+22 - 
+
+
+23 - 
+
+
+24 - 
+
+
+25 - 
+
+
+26 - 
+
+
+27 - 
+
+
+28 - 
+
+
+29 - 
+
+
+30 - 
+
+
